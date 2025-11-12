@@ -184,7 +184,7 @@ namespace fml
             T* _object = object.load();
             int ret = 0;
 
-            if(_object && !is_running())
+            if(_object && is_running())
             {
                 _object->run();
             }
