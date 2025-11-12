@@ -13,6 +13,18 @@ extern thread_mutex_t app_mutex;
 #define app_lock thread_mutex_lock
 #define app_unlock thread_mutex_unlock // todo : implement header file of thread mutex
 
+
+/*
+
+  static int task_spawn()
+  {
+    int ret = 0;
+    ret = thread_create(&task_id, NULL, 
+                                &run_alone, object); 
+    
+  }
+
+ */
 enum class work_queue_level
 {
     none ,
@@ -25,7 +37,7 @@ enum class work_queue_level
 
 namespace fml
 {
-    template <class T , work_queue_level _level = work_queue_level::none>
+    template <class T , work_queue_level _level = work_queue_level::mid>
     class AppBase
     {
     public:
@@ -52,7 +64,7 @@ namespace fml
             }
             else if (strcmp(argv[1], "status") == 0)
             {
-                return status();
+                return check_status();
             }
             else if (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "-h") == 0)
             {
@@ -66,30 +78,39 @@ namespace fml
             return ret;
         }
 
-        virtual int instantiate()
+        static T* instantiate()
         {
-            int ret{0};
-
             app_lock(&app_mutex);
-            if(level == work_queue_level::none)
-            return -1;
-            T *object = new T(level);
-            if (object)
-            {
-                /* @todo : join work queue */
-                /* if success, return the thread id , otherwise return -1 */
-                ret = join_work_queue(object, level);
-                if (ret > 0)
-                {
-                    this->object.store(object);
-                    task_id.store(ret);
-                }
-                
-                
-            }
 
+            int id = 0;
+            T * _object = new T();
+            if(_object)
+            {
+                if(level != work_queue_level::none)
+                {
+                    /* @todo : join work queue */
+                    /* if success, return the thread id , otherwise return -1 */
+                    id = join_work_queue(_object, level);    
+                }
+                else if (level == work_queue_level::none)
+                {
+                    id = T::task_spawn(_object);
+                }
+
+                if (id > 0)
+                {
+                    object.store(_object);
+                    task_id.store(id);
+                }
+                else
+                {
+                    delete _object;
+                    _object = nullptr;
+                }
+            }
+             
             app_unlock(&app_mutex);
-            return ret;
+            return _object;
         };
 
         static int start()
@@ -104,15 +125,15 @@ namespace fml
             }
             else
             {
-                ret = instantiate(); // @todo : spawn
-                if (ret < 0)
+                app_unlock(&app_mutex);
+                T* object = T::instantiate(); // @todo : spawn
+                if (object == nullptr)
                 {
                     fml_error("task spawn faided ,can see template param ") // @todo : info printf
                 }
+                return ret;
             }
-            task_id.store();
             
-
             app_unlock(&app_mutex);
             return ret;
         }
@@ -121,7 +142,7 @@ namespace fml
         {
             app_lock(&app_mutex);
 
-            if (_object.load() && is_running())
+            if (object.load() && is_running())
             {
                 fml_info("task is running");
             }
@@ -158,6 +179,26 @@ namespace fml
             return 0;
         }
 
+        static int run_alone(void* arg)
+        {
+            T* _object = object.load();
+            int ret = 0;
+
+            if(_object && !is_running())
+            {
+                _object->run();
+            }
+            else
+            {
+                fml_error("object is null");
+                ret = -1;
+            }
+
+            stop_and_cleanup();
+            return ret;
+        }
+
+
         /*
          *@brief: a main loop of
          */
@@ -171,8 +212,9 @@ namespace fml
 
             if (is_running() && object.load())
             {
+                T* _object = object.load();
                 task_id = 0;
-                delete object.load();
+                delete _object;
                 object.store(nullptr);
                 ret = 0;
             }
@@ -190,7 +232,7 @@ namespace fml
         {
             if (request_exit())
             {
-                if (stop_and_cleanup())
+                if (!stop_and_cleanup())
                     fml_info("The task has been exited");
             }
         }
@@ -218,20 +260,20 @@ namespace fml
     };
 };
 
-template <typename T>
-using AppBase = fml::AppBase<T>;
+template <typename T , work_queue_level _level>
+using AppBase = fml::AppBase<T , _level>;
 
-template <class T>
-fml::atomic<T *> AppBase<T>::object{nullptr};
+template <class T , work_queue_level _level>
+fml::atomic<T *> AppBase<T ,_level>::object{nullptr};
 
-template <class T>
-fml::atomic_int AppBase<T>::task_id{0};
+template <class T , work_queue_level _level>
+fml::atomic_int AppBase<T , _level>::task_id{0};
 
 
 #endif /* __cplusplus */
 
 /**
- * profile£º
+ * profile
  * two method of scheduling : work_queue(shared the thread) and independent thread
  *
  *
