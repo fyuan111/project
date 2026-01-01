@@ -5,102 +5,124 @@
     Header file
 
 */
-#include <platform/atomic.hpp>
+#include <platform/task.h>
+#include <platform/define.h>
+#include <platform/common/atomic.hpp>
 #include <platform/log.h>
+#include <platform/mutex.hpp>
+#include "thread.h"
+#include <lib/type_traits/type_traits.hpp>
 
-extern thread_mutex_t app_mutex;
+extern mutex_t app_mutex;
 
-#define app_lock thread_mutex_lock
-#define app_unlock thread_mutex_unlock // todo : implement header file of thread mutex
-
+#define app_lock mutex_lock
+#define app_unlock mutex_unlock // todo : implement header file of thread mutex
 
 /*
 
   static int task_spawn()
   {
     int ret = 0;
-    ret = thread_create(&task_id, NULL, 
-                                &run_alone, object); 
-    
+    ret = thread_create(&tid, NULL,
+                                &run_alone, object);
+
   }
 
  */
 enum class work_queue_level
 {
-    none ,
-    high ,        // 3-5
-    mid  ,        // 7-9
-    low           // 11-13
+    none,
+    high, // 3-5
+    mid,  // 7-9
+    low   // 11-13
 };
+
+#define FML_REGISTER_APP(app_name)                         \
+                                                           \
+    extern "C" int app_name##_main(int argc, char *argv[]) \
+    {                                                      \
+        return app_name::main(argc, argv);                 \
+    }
 
 #ifdef __cplusplus
 
+class WorkItem;
+
 namespace fml
 {
-    template <class T , work_queue_level _level = work_queue_level::mid>
+    /**
+     * When use the workqueue, workitem should be constructed .
+     *
+     */
+    template <class T>
     class AppBase
     {
     public:
+        AppBase();
 
-        AppBase()
+        AppBase(const char *name, size_t stack_size = 0)
         {
-#if defined(DEBUG)
-
-            startup_info();    
-#endif
+            task.task_name = name;
+            // priority会在派生类中设置
+            task.stack_size = stack_size;
         }
 
         virtual ~AppBase() = default; // why the Destructor with virtual
 
-        int main(int argc, char *argv[])
+        static int main(int argc, char *argv[])
         {
+            int ret = 0;
             if (strcmp(argv[1], "start") == 0)
             {
-                return start();
+                ret = start();
             }
             else if (strcmp(argv[1], "stop") == 0)
             {
-                return stop();
+                ret = stop_and_cleanup();
             }
             else if (strcmp(argv[1], "status") == 0)
             {
-                return check_status();
+                check_status();
             }
             else if (strcmp(argv[1], "help") == 0 || strcmp(argv[1], "-h") == 0)
             {
-                return T::printf_usage();
+                T::printf_usage_static();
             }
 
             app_lock(&app_mutex);
-            int ret = T::custom_commond(argc, argv);
+            // int ret = T::custom_commond(argc, argv);
             app_unlock(&app_mutex);
 
             return ret;
         }
 
-        static T* instantiate()
+        static T *instantiate()
         {
             app_lock(&app_mutex);
 
-            int id = 0;
-            T * _object = new T();
-            if(_object)
+            T *_object = new T();
+            if (_object)
             {
-                if(level != work_queue_level::none)
+                int id = 0;
+
+                if constexpr (fml::has_member_init_v<T>)
                 {
-                    /* @todo : join work queue */
-                    /* if success, return the thread id , otherwise return -1 */
-                    id = join_work_queue(_object, level);    
+                    _object->init();
                 }
-                else if (level == work_queue_level::none)
+
+                if constexpr (fml::is_base_of_v<WorkItem, T>)
                 {
-                    id = T::task_spawn(_object);
+                    id = workqueue_id(_object->get_priority());
+                }
+                else
+                {
+                    id = T::task_spawn();
                 }
 
                 if (id > 0)
                 {
                     object.store(_object);
-                    task_id.store(id);
+                    tid.store(id);
                 }
                 else
                 {
@@ -108,34 +130,32 @@ namespace fml
                     _object = nullptr;
                 }
             }
-             
+
             app_unlock(&app_mutex);
             return _object;
         };
 
+        // T::task_spawn();
+
         static int start()
         {
-            int ret = 0;
-
             app_lock(&app_mutex);
 
             if (is_running())
             {
                 fml_info("task is running");
-            }
-            else
-            {
                 app_unlock(&app_mutex);
-                T* object = T::instantiate(); // @todo : spawn
-                if (object == nullptr)
-                {
-                    fml_error("task spawn faided ,can see template param ") // @todo : info printf
-                }
-                return ret;
+                return 0;
             }
-            
+
             app_unlock(&app_mutex);
-            return ret;
+
+            if (T::instantiate() == nullptr)
+            {
+                fml_error("task spawn failed");
+                return -1; // 失败返回 -1
+            }
+            return 0; // 成功返回 0
         }
 
         static void check_status()
@@ -154,9 +174,9 @@ namespace fml
             app_unlock(&app_mutex);
         }
 
-        bool is_running() // true is running
+        static bool is_running() // true is running
         {
-            return task_id != 0;
+            return tid.load();
         }
 
         // static int stop()
@@ -168,7 +188,7 @@ namespace fml
         //     if (is_running() && object.load())
         //     {
         //         is_exit.store(true);
-        //         task_id = 0;
+        //         tid = 0;
         //     }
 
         // }
@@ -179,12 +199,18 @@ namespace fml
             return 0;
         }
 
-        static int run_alone(void* arg)
+        static int printf_usage_static()
         {
-            T* _object = object.load();
+            fml_info("usage : app [start|stop|status]"); //@todo : info printf
+            return 0;
+        }
+
+        static void run_alone(void *arg1, void *arg2, void *arg3)
+        {
+            T *_object = object.load();
             int ret = 0;
 
-            if(_object && is_running())
+            if (_object && is_running())
             {
                 _object->run();
             }
@@ -195,14 +221,15 @@ namespace fml
             }
 
             stop_and_cleanup();
-            return ret;
+            // return ret;
         }
 
-
         /*
-         *@brief: a main loop of
+         *@brief: a main loop of application
          */
         virtual void run() {}
+
+        int get_tid() const { return tid.load(); }
 
     protected:
         static int stop_and_cleanup()
@@ -212,8 +239,8 @@ namespace fml
 
             if (is_running() && object.load())
             {
-                T* _object = object.load();
-                task_id = 0;
+                T *_object = object.load();
+                tid.store(0);
                 delete _object;
                 object.store(nullptr);
                 ret = 0;
@@ -228,7 +255,7 @@ namespace fml
         }
 
         /* Used by run() to determine whether to exit */
-        static void check_or_exit()
+        void check_or_exit()
         {
             if (request_exit())
             {
@@ -242,11 +269,13 @@ namespace fml
             return is_exit.load();
         }
 
+        static f_thread_t task;
+
         static atomic<T *> object;
 
-        static atomic_int task_id;
+        /* The ID number of the thread it belongs to */
+        static atomic_int tid;
 
-        static constexpr work_queue_level level = _level;
     private:
         __attribute__((noinline)) void startup_info()
         {
@@ -260,15 +289,18 @@ namespace fml
     };
 };
 
-template <typename T , work_queue_level _level>
-using AppBase = fml::AppBase<T , _level>;
+// 在全局命名空间提供 AppBase 别名
+template <typename T>
+using AppBase = fml::AppBase<T>;
 
-template <class T , work_queue_level _level>
-fml::atomic<T *> AppBase<T ,_level>::object{nullptr};
+template <class T>
+fml::atomic<T *> fml::AppBase<T>::object{nullptr};
 
-template <class T , work_queue_level _level>
-fml::atomic_int AppBase<T , _level>::task_id{0};
+template <class T>
+fml::atomic_int fml::AppBase<T>::tid{0};
 
+template <class T>
+f_thread_t fml::AppBase<T>::task{};
 
 #endif /* __cplusplus */
 
