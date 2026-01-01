@@ -1,0 +1,20 @@
+# FML Kconfig configuration
+
+# 首先包含 Zephyr 的主配置
+source "Kconfig.zephyr"
+
+menuconfig FML
+    bool "FML Configuration"
+    default y
+    help
+      Flight Module Library configuration options.
+
+if FML
+
+# 自动包含所有库的 Kconfig
+rsource "src/lib/*/Kconfig"
+
+# 自动包含所有应用的 Kconfig（可选，如果不存在不会报错）
+# rsource "src/Applications/*/Kconfig"
+
+endif # FML

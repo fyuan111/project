@@ -4,34 +4,30 @@
  *@todo header file
  */
 
-#define FML_OK 0
-#define FML_ERROE -1
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
 
+#define FML_OK 0
+#define fml_errorOE -1
 
 #ifdef __cplusplus
-    #define BEGIN_DECLS extern "C" {
-    #define END_DECLS  }
-#elif
-    #define BEGIN_DECLS 
-    #define END_DECLS  
+#define BEGIN_DECLS \
+    extern "C"      \
+    {
+#define END_DECLS }
+#else
+#define BEGIN_DECLS
+#define END_DECLS
 #endif
 
 /**
  * @todo Correctness judgment
- * 
- * 
- * 
- * 
+ *
+ *
+ *
+ *
  */
-
-
-
-
-
-
-
-
-
 
 /* Math macro's for float literals. Do not use M_PI et al as they aren't
  * defined (neither C nor the C++ standard define math constants) */
@@ -68,3 +64,35 @@
 
 #define M_DEG_TO_RAD 0.017453292519943295
 #define M_RAD_TO_DEG 57.295779513082323
+
+/* ===== time =====*/
+
+/* us time */
+typedef uint64_t f_abstime_t;
+typedef uint32_t f_time_t;
+
+/* =====end time ==========*/
+
+/* ===== CONTAINER_OF 宏 ===== */
+
+#if defined(FML_ZEPHYR)
+// Zephyr 平台：使用系统提供的 CONTAINER_OF
+#include <zephyr/sys/util.h>
+
+#elif defined(FML_LINUX)
+// Linux 平台：自定义 CONTAINER_OF
+#ifndef CONTAINER_OF
+/**
+ * @brief 从结构体成员指针获取结构体指针
+ * @param ptr 指向成员的指针
+ * @param type 结构体类型
+ * @param member 成员名
+ * @return 指向结构体的指针
+ */
+#define CONTAINER_OF(ptr, type, member) \
+    ((type *)((char *)(ptr) - offsetof(type, member)))
+#endif
+
+#endif
+
+/* ===== end CONTAINER_OF ===== */

@@ -1,0 +1,9 @@
+/* Enable hardware timer for high-precision scheduling */
+
+&timer0 {
+	status = "okay";
+
+	counter {
+		status = "okay";
+	};
+};

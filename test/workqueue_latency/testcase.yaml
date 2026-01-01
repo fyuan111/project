@@ -1,0 +1,13 @@
+tests:
+  fml.workqueue.latency:
+    tags: performance
+    type: unit
+    harness: ztest
+    integration_platforms:
+      - native_posix
+      - qemu_cortex_m3
+    platform_allow:
+      - native_posix
+      - qemu_cortex_m3
+      # 添加你的实际硬件平台
+    timeout: 30

@@ -1,0 +1,119 @@
+#pragma once
+
+#include <platform/define.h>
+#include <platform/log.h>
+#include <stdint.h>
+
+#ifdef FML_ZEPHYR
+#include <zephyr/timing/timing.h>
+
+// 全局初始化，只调用一次
+inline void perf_global_init() {
+    static bool initialized = false;
+    if (!initialized) {
+        timing_init();
+        timing_start();
+        initialized = true;
+    }
+}
+
+#endif
+
+/// @brief RAII 性能测量类，析构时自动停止计时
+/// @note 每个对象独立测量一次，不累积统计
+class PerfTimer
+{
+public:
+    PerfTimer() {
+#ifdef FML_ZEPHYR
+        perf_global_init();
+        _start = timing_counter_get();
+#endif
+    }
+
+    ~PerfTimer() {
+        if (!_stopped) {
+            stop();
+        }
+    }
+
+    /// @brief 停止计时并返回耗时（纳秒）
+    uint64_t stop() {
+#ifdef FML_ZEPHYR
+        if (_stopped) return _duration;
+
+        _stopped = true;
+        timing_t end = timing_counter_get();
+        _duration = timing_cycles_to_ns(timing_cycles_get(&_start, &end));
+        return _duration;
+#else
+        return 0;
+#endif
+    }
+
+    /// @brief 获取测量时长
+    uint64_t duration() const { return _duration; }
+
+    /// @brief 打印时间
+    void print(const char* label = "perf") const {
+        fml_info("%s: %llu ns", label, _duration);
+    }
+
+private:
+    timing_t _start{0};
+    uint64_t _duration{0};
+    bool _stopped{false};
+};
+
+/// @brief 累积统计类，可以统计多次测量的 max/min/avg
+class PerfStats
+{
+public:
+    void record(uint64_t duration) {
+        if (duration > max) max = duration;
+        if (duration < min) min = duration;
+        sum += duration;
+        count++;
+    }
+
+    void print(const char* label = "stats") const {
+        if (count == 0) {
+            fml_info("%s: no data", label);
+            return;
+        }
+        uint64_t avg = sum / count;
+        fml_info("%s: count=%u, max=%llu ns, min=%llu ns, avg=%llu ns",
+                 label, count, max, min, avg);
+    }
+
+    void reset() {
+        max = 0;
+        min = UINT64_MAX;
+        sum = 0;
+        count = 0;
+    }
+
+private:
+    uint64_t max{0};
+    uint64_t min{UINT64_MAX};
+    uint64_t sum{0};
+    uint32_t count{0};
+};
+
+// 便捷宏：作用域内自动计时
+#define PERF_SCOPE(name) PerfTimer _perf_##name; \
+    auto _perf_guard_##name = [&]() { \
+        _perf_##name.stop(); \
+        _perf_##name.print(#name); \
+    }
+
+// 使用示例：
+// void my_function() {
+//     PerfStats stats;
+//     for (int i = 0; i < 10; i++) {
+//         PerfTimer timer;
+//         k_usleep(2000000);
+//         stats.record(timer.stop());
+//     }
+//     stats.print("loop_timing");
+// }

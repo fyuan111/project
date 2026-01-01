@@ -1,5 +1,4 @@
 #include <common/apps.hpp>
-#include <> mutex
+#include <platform/mutex.hpp>
 
-thread_mutex_t app_mutex;
-
+mutex_define(app_mutex);

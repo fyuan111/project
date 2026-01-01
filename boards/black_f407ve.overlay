@@ -1,0 +1,10 @@
+/* Enable hardware timer for high-precision scheduling on STM32F407 */
+
+/* 使用 TIM2 作为硬件定时器 (32位定时器, APB1) */
+&timers2 {
+	status = "okay";
+
+	counter {
+		status = "okay";
+	};
+};

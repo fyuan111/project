@@ -1,0 +1,15 @@
+config FML_PERF
+    bool "Performance measurement library"
+    default y
+    help
+      Enable performance measurement and timing tools.
+
+if FML_PERF
+
+config FML_PERF_PRINT
+    bool "Print performance measurements"
+    default y
+    help
+      Print timing information to console.
+
+endif # FML_PERF

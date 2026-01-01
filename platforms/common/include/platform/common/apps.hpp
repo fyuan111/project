@@ -70,10 +70,11 @@ namespace fml
         virtual ~AppBase() = default; // why the Destructor with virtual
 
         static int main(int argc, char *argv[])
-        {
+        { 
             int ret = 0;
+            
             if (strcmp(argv[1], "start") == 0)
-            {
+            { 
                 ret = start();
             }
             else if (strcmp(argv[1], "stop") == 0)
